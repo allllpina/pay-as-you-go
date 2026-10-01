@@ -1,0 +1,10 @@
+# Binaries
+/bin/
+pay-as-you-use
+
+# Env files
+.env
+
+# Go workspace
+vendor/
+go.work
