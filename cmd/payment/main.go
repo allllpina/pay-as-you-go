@@ -5,6 +5,9 @@ import (
 	"os"
 
 	"pay-as-you-use/internal/database"
+	"pay-as-you-use/internal/handler"
+	"pay-as-you-use/internal/repository"
+	"pay-as-you-use/internal/service"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
@@ -21,6 +24,12 @@ func main() {
 	}
 	defer dbPool.Close()
 
+	ledgerRepo := repository.NewLedgerRepository(dbPool)
+
+	paymentSvc := service.NewPaymentService(ledgerRepo)
+
+	paymentHandler := handler.NewPaymentHandler(paymentSvc)
+
 	app := fiber.New()
 
 	app.Get("/health", func(c *fiber.Ctx) error {
@@ -29,6 +38,8 @@ func main() {
 			"service": "payment-service",
 		})
 	})
+
+	paymentHandler.SetupRoutes(app)
 
 	port := os.Getenv("PORT")
 	if port == "" {
