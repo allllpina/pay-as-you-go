@@ -5,12 +5,12 @@ import (
 )
 
 type LedgerRecord struct {
-	ID            string    `json:"id"`
-	UserID        string    `json:"user_id"`
-	Amount        int       `json:"amount"`
-	ReferenceID   *string   `json:"reference_id"`
-	OperationType string    `json:"operation_type"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID            string        `json:"id"`
+	UserID        string        `json:"user_id"`
+	Amount        int           `json:"amount"`
+	ReferenceID   *string       `json:"reference_id"`
+	OperationType OperationType `json:"operation_type"`
+	CreatedAt     time.Time     `json:"created_at"`
 }
 
 type TokenPackage struct {
