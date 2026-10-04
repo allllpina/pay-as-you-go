@@ -25,13 +25,14 @@ func main() {
 	defer dbPool.Close()
 
 	ledgerRepo := repository.NewLedgerRepository(dbPool)
+	tokenPackageRepo := repository.NewTokenPackageRepository(dbPool)
 
 	stripeConfig := service.StripeConfig{
 		SecretKey:   os.Getenv("STRIPE_SECRET_KEY"),
 		BaseURL:     os.Getenv("BASE_URL"),
 		FrontendURL: os.Getenv("FRONTEND_URL"),
 	}
-	paymentSvc := service.NewPaymentService(ledgerRepo, stripeConfig)
+	paymentSvc := service.NewPaymentService(ledgerRepo, tokenPackageRepo, stripeConfig)
 
 	paymentHandler := handler.NewPaymentHandler(paymentSvc)
 
