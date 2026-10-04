@@ -12,6 +12,10 @@ import (
 	"github.com/stripe/stripe-go/v86/webhook"
 )
 
+type CreateCheckoutRequest struct {
+	PackageID string `json:"package_id"`
+}
+
 type PaymentHandler struct {
 	paymentService service.PaymentService
 }
@@ -42,9 +46,21 @@ func (h *PaymentHandler) GetBalance(c *fiber.Ctx) error {
 func (h *PaymentHandler) CreateCheckout(c *fiber.Ctx) error {
 	userID := c.Params("user_id")
 
-	priceID := "price_1UMTP0Gb0JTyNFJi82HjL8br"
+	var req CreateCheckoutRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
 
-	url, err := h.paymentService.CreateCheckoutSession(c.Context(), userID, priceID)
+	// Валідація на порожнє значення
+	if req.PackageID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "package_id is required",
+		})
+	}
+
+	url, err := h.paymentService.CreateCheckoutSession(c.Context(), userID, req.PackageID)
 	if err != nil {
 		log.Printf("Error creating checkout: %v", err)
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to create checkout session"})
@@ -75,13 +91,22 @@ func (h *PaymentHandler) HandleWebhook(c *fiber.Ctx) error {
 		userID := session.ClientReferenceID
 		log.Printf("Payment success for user: %s", userID)
 
-		err = h.paymentService.AddDeposit(c.Context(), userID, 1000)
+		packageID := session.Metadata["package_id"]
+
+		if packageID == "" {
+			log.Printf("Warning: no package_id found in session metadata for user %s", userID)
+			return c.SendStatus(fiber.StatusOK)
+		}
+
+		log.Printf("Payment success for user: %s, Package: %s", userID, packageID)
+
+		err = h.paymentService.ProcessSuccessfulPayment(c.Context(), userID, packageID)
 		if err != nil {
 			log.Printf("Failed to process deposit for user %s: %v", userID, err)
 			return c.Status(fiber.StatusInternalServerError).SendString("Failed to save deposit")
 		}
 
-		log.Printf("Successfully added deposit of 1000 tokens for user: %s", userID)
+		log.Printf("Successfully added deposit for user: %s", userID)
 	}
 	// TODO: add else
 	return c.SendStatus(fiber.StatusOK)
