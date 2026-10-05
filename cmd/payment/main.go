@@ -26,13 +26,15 @@ func main() {
 
 	ledgerRepo := repository.NewLedgerRepository(dbPool)
 	tokenPackageRepo := repository.NewTokenPackageRepository(dbPool)
+	depositReqRepo := repository.NewDepositRequestRepository(dbPool)
+	depositStatRepo := repository.NewDepositStatusRepository(dbPool)
 
 	stripeConfig := service.StripeConfig{
 		SecretKey:   os.Getenv("STRIPE_SECRET_KEY"),
 		BaseURL:     os.Getenv("BASE_URL"),
 		FrontendURL: os.Getenv("FRONTEND_URL"),
 	}
-	paymentSvc := service.NewPaymentService(ledgerRepo, tokenPackageRepo, stripeConfig)
+	paymentSvc := service.NewPaymentService(ledgerRepo, tokenPackageRepo, depositReqRepo, depositStatRepo, stripeConfig)
 
 	paymentHandler := handler.NewPaymentHandler(paymentSvc)
 

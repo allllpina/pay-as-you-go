@@ -21,3 +21,18 @@ type TokenPackage struct {
 	Currency      string `json:"currency"`
 	IsActive      bool   `json:"is_active"`
 }
+
+type DepositRequest struct {
+	ID              string
+	UserID          string
+	StripeSessionID *string
+	PackageID       string
+	CreatedAt       time.Time
+}
+
+type DepositStatusHistory struct {
+	ID               string
+	DepositRequestID string
+	Status           DepositStatus
+	CreatedAt        time.Time
+}

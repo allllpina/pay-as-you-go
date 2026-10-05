@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"strings"
 
 	"pay-as-you-use/internal/service"
 
@@ -79,36 +80,45 @@ func (h *PaymentHandler) HandleWebhook(c *fiber.Ctx) error {
 		log.Printf("Webhook signature verification failed: %v", err)
 		return c.Status(fiber.StatusBadRequest).SendString("Invalid payload")
 	}
+	if event.Type == "checkout.session.completed" ||
+		event.Type == "checkout.session.expired" ||
+		event.Type == "checkout.session.async_payment_failed" {
 
-	if event.Type == "checkout.session.completed" {
 		var session stripe.CheckoutSession
-		err := json.Unmarshal(event.Data.Raw, &session)
-		if err != nil {
+		if err := json.Unmarshal(event.Data.Raw, &session); err != nil {
 			log.Printf("Error parsing webhook JSON: %v", err)
 			return c.Status(fiber.StatusBadRequest).SendString("Invalid payload")
 		}
 
-		userID := session.ClientReferenceID
-		log.Printf("Payment success for user: %s", userID)
+		// userID := session.ClientReferenceID
+		requestID := session.Metadata["request_id"]
 
-		packageID := session.Metadata["package_id"]
-
-		if packageID == "" {
-			log.Printf("Warning: no package_id found in session metadata for user %s", userID)
+		if requestID == "" {
+			log.Printf("Warning: no request_id found in session metadata for event %s", requestID)
 			return c.SendStatus(fiber.StatusOK)
 		}
 
-		log.Printf("Payment success for user: %s, Package: %s", userID, packageID)
-
-		err = h.paymentService.ProcessSuccessfulPayment(c.Context(), userID, packageID)
-		if err != nil {
-			log.Printf("Failed to process deposit for user %s: %v", userID, err)
-			return c.Status(fiber.StatusInternalServerError).SendString("Failed to save deposit")
+		switch event.Type {
+		case "checkout.session.completed":
+			log.Printf("Payment success for request: %s", requestID)
+			err = h.paymentService.ProcessSuccessfulPayment(c.Context(), requestID)
+			if err != nil {
+				log.Printf("Failed to process successful deposit: %v", err)
+				if strings.Contains(err.Error(), "business error") {
+					return c.SendStatus(fiber.StatusOK)
+				}
+				return c.Status(fiber.StatusInternalServerError).SendString("DB error")
+			}
+			log.Printf("Successfully added deposit for request: %s", requestID)
+		case "checkout.session.expired", "checkout.session.async_payment_failed":
+			log.Printf("Payment failed/expired for request: %s. Event: %s", requestID, event.Type)
+			err := h.paymentService.ProcessFailedPayment(c.Context(), requestID)
+			if err != nil {
+				log.Printf("Failed to process failed deposit status: %v", err)
+				return c.Status(fiber.StatusInternalServerError).SendString("DB error")
+			}
 		}
-
-		log.Printf("Successfully added deposit for user: %s", userID)
 	}
-	// TODO: add else
 	return c.SendStatus(fiber.StatusOK)
 }
 
