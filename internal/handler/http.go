@@ -2,20 +2,18 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"strings"
 
+	"pay-as-you-use/internal/domain"
 	"pay-as-you-use/internal/service"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/stripe/stripe-go/v86"
 	"github.com/stripe/stripe-go/v86/webhook"
 )
-
-type CreateCheckoutRequest struct {
-	PackageID string `json:"package_id"`
-}
 
 type PaymentHandler struct {
 	paymentService service.PaymentService
@@ -42,6 +40,10 @@ func (h *PaymentHandler) GetBalance(c *fiber.Ctx) error {
 		"user_id": userID,
 		"balance": balance,
 	})
+}
+
+type CreateCheckoutRequest struct {
+	PackageID string `json:"package_id"`
 }
 
 func (h *PaymentHandler) CreateCheckout(c *fiber.Ctx) error {
@@ -90,7 +92,6 @@ func (h *PaymentHandler) HandleWebhook(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusBadRequest).SendString("Invalid payload")
 		}
 
-		// userID := session.ClientReferenceID
 		requestID := session.Metadata["request_id"]
 
 		if requestID == "" {
@@ -122,10 +123,48 @@ func (h *PaymentHandler) HandleWebhook(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusOK)
 }
 
+type DeductRequest struct {
+	UserID      string `json:"user_id"`
+	Amount      int    `json:"amount"`
+	ReferenceID string `json:"reference_id"`
+}
+
+func (h *PaymentHandler) Deduct(c *fiber.Ctx) error {
+	var req DeductRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	if req.UserID == "" || req.Amount <= 0 || req.ReferenceID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "missing required fields or invalid amount"})
+	}
+
+	err := h.paymentService.DeductTokens(c.Context(), req.UserID, req.Amount, req.ReferenceID)
+	if err != nil {
+		if errors.Is(err, domain.ErrInsufficientFunds) {
+			return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
+				"error": "insufficient funds",
+			})
+		}
+
+		log.Printf("Failed to deduct tokens for user %s: %v", req.UserID, err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "internal server error",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"status":   "success",
+		"deducted": req.Amount,
+	})
+}
+
 func (h *PaymentHandler) SetupRoutes(app *fiber.App) {
 	api := app.Group("/api/v1")
 
 	api.Get("/balance/:user_id", h.GetBalance)
 	api.Post("/checkout/:user_id", h.CreateCheckout)
 	api.Post("/webhook", h.HandleWebhook)
+
+	api.Post("/deduct", h.Deduct)
 }

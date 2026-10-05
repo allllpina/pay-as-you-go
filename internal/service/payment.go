@@ -18,6 +18,8 @@ type PaymentService interface {
 	CreateCheckoutSession(ctx context.Context, userID string, packageID string) (string, error)
 	ProcessSuccessfulPayment(ctx context.Context, requestID string) error
 	ProcessFailedPayment(ctx context.Context, requestID string) error
+
+	DeductTokens(ctx context.Context, userID string, amount int, referenceID string) error
 }
 type StripeConfig struct {
 	SecretKey   string
@@ -145,5 +147,31 @@ func (s *paymentService) ProcessFailedPayment(ctx context.Context, requestID str
 	if err != nil {
 		return fmt.Errorf("failed to update status to failed: %w", err)
 	}
+	return nil
+}
+
+func (s *paymentService) DeductTokens(ctx context.Context, userID string, amount int, referenceID string) error {
+	balance, err := s.GetUserBalance(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to check balance: %w", err)
+	}
+
+	if balance < amount {
+		return domain.ErrInsufficientFunds
+	}
+
+	record := domain.LedgerRecord{
+		UserID:        userID,
+		Amount:        -amount,
+		ReferenceID:   &referenceID,
+		OperationType: domain.OpTypeServiceUsage,
+		CreatedAt:     time.Now(),
+	}
+
+	err = s.ledgerRepo.AddRecord(ctx, record)
+	if err != nil {
+		return fmt.Errorf("failed to add deduction record to ledger: %w", err)
+	}
+
 	return nil
 }
