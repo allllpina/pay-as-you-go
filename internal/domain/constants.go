@@ -7,3 +7,11 @@ const (
 	OpTypeServiceUsage  OperationType = "SERVICE_USAGE"
 	OpTypeRefund        OperationType = "REFUND"
 )
+
+type DepositStatus string
+
+const (
+	StatusPending DepositStatus = "pending"
+	StatusSuccess DepositStatus = "success"
+	StatusFailed  DepositStatus = "failed"
+)

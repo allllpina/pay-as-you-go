@@ -2,19 +2,18 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
+	"strings"
 
+	"pay-as-you-use/internal/domain"
 	"pay-as-you-use/internal/service"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/stripe/stripe-go/v86"
 	"github.com/stripe/stripe-go/v86/webhook"
 )
-
-type CreateCheckoutRequest struct {
-	PackageID string `json:"package_id"`
-}
 
 type PaymentHandler struct {
 	paymentService service.PaymentService
@@ -41,6 +40,10 @@ func (h *PaymentHandler) GetBalance(c *fiber.Ctx) error {
 		"user_id": userID,
 		"balance": balance,
 	})
+}
+
+type CreateCheckoutRequest struct {
+	PackageID string `json:"package_id"`
 }
 
 func (h *PaymentHandler) CreateCheckout(c *fiber.Ctx) error {
@@ -79,37 +82,81 @@ func (h *PaymentHandler) HandleWebhook(c *fiber.Ctx) error {
 		log.Printf("Webhook signature verification failed: %v", err)
 		return c.Status(fiber.StatusBadRequest).SendString("Invalid payload")
 	}
+	if event.Type == "checkout.session.completed" ||
+		event.Type == "checkout.session.expired" ||
+		event.Type == "checkout.session.async_payment_failed" {
 
-	if event.Type == "checkout.session.completed" {
 		var session stripe.CheckoutSession
-		err := json.Unmarshal(event.Data.Raw, &session)
-		if err != nil {
+		if err := json.Unmarshal(event.Data.Raw, &session); err != nil {
 			log.Printf("Error parsing webhook JSON: %v", err)
 			return c.Status(fiber.StatusBadRequest).SendString("Invalid payload")
 		}
 
-		userID := session.ClientReferenceID
-		log.Printf("Payment success for user: %s", userID)
+		requestID := session.Metadata["request_id"]
 
-		packageID := session.Metadata["package_id"]
-
-		if packageID == "" {
-			log.Printf("Warning: no package_id found in session metadata for user %s", userID)
+		if requestID == "" {
+			log.Printf("Warning: no request_id found in session metadata for event %s", requestID)
 			return c.SendStatus(fiber.StatusOK)
 		}
 
-		log.Printf("Payment success for user: %s, Package: %s", userID, packageID)
+		switch event.Type {
+		case "checkout.session.completed":
+			log.Printf("Payment success for request: %s", requestID)
+			err = h.paymentService.ProcessSuccessfulPayment(c.Context(), requestID)
+			if err != nil {
+				log.Printf("Failed to process successful deposit: %v", err)
+				if strings.Contains(err.Error(), "business error") {
+					return c.SendStatus(fiber.StatusOK)
+				}
+				return c.Status(fiber.StatusInternalServerError).SendString("DB error")
+			}
+			log.Printf("Successfully added deposit for request: %s", requestID)
+		case "checkout.session.expired", "checkout.session.async_payment_failed":
+			log.Printf("Payment failed/expired for request: %s. Event: %s", requestID, event.Type)
+			err := h.paymentService.ProcessFailedPayment(c.Context(), requestID)
+			if err != nil {
+				log.Printf("Failed to process failed deposit status: %v", err)
+				return c.Status(fiber.StatusInternalServerError).SendString("DB error")
+			}
+		}
+	}
+	return c.SendStatus(fiber.StatusOK)
+}
 
-		err = h.paymentService.ProcessSuccessfulPayment(c.Context(), userID, packageID)
-		if err != nil {
-			log.Printf("Failed to process deposit for user %s: %v", userID, err)
-			return c.Status(fiber.StatusInternalServerError).SendString("Failed to save deposit")
+type DeductRequest struct {
+	UserID      string `json:"user_id"`
+	Amount      int    `json:"amount"`
+	ReferenceID string `json:"reference_id"`
+}
+
+func (h *PaymentHandler) Deduct(c *fiber.Ctx) error {
+	var req DeductRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	if req.UserID == "" || req.Amount <= 0 || req.ReferenceID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "missing required fields or invalid amount"})
+	}
+
+	err := h.paymentService.DeductTokens(c.Context(), req.UserID, req.Amount, req.ReferenceID)
+	if err != nil {
+		if errors.Is(err, domain.ErrInsufficientFunds) {
+			return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
+				"error": "insufficient funds",
+			})
 		}
 
-		log.Printf("Successfully added deposit for user: %s", userID)
+		log.Printf("Failed to deduct tokens for user %s: %v", req.UserID, err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "internal server error",
+		})
 	}
-	// TODO: add else
-	return c.SendStatus(fiber.StatusOK)
+
+	return c.JSON(fiber.Map{
+		"status":   "success",
+		"deducted": req.Amount,
+	})
 }
 
 func (h *PaymentHandler) SetupRoutes(app *fiber.App) {
@@ -118,4 +165,6 @@ func (h *PaymentHandler) SetupRoutes(app *fiber.App) {
 	api.Get("/balance/:user_id", h.GetBalance)
 	api.Post("/checkout/:user_id", h.CreateCheckout)
 	api.Post("/webhook", h.HandleWebhook)
+
+	api.Post("/deduct", h.Deduct)
 }
