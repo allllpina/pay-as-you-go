@@ -43,3 +43,12 @@ type User struct {
 	StripeCustomerID *string
 	CreatedAt        time.Time
 }
+
+type UsageLog struct {
+	ID         string
+	UserID     string
+	TokensCost int
+	ActionTupe string
+	Status     UsageStatus
+	CreatedAt  time.Time
+}

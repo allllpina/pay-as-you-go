@@ -15,3 +15,11 @@ const (
 	StatusSuccess DepositStatus = "success"
 	StatusFailed  DepositStatus = "failed"
 )
+
+type UsageStatus string
+
+const (
+	UsageStatusPending UsageStatus = "pending"
+	UsageStatusSuccess UsageStatus = "success"
+	UsageStatusFailed  UsageStatus = "failed"
+)
