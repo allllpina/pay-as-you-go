@@ -36,3 +36,10 @@ type DepositStatusHistory struct {
 	Status           DepositStatus
 	CreatedAt        time.Time
 }
+
+type User struct {
+	ID               string
+	Email            string
+	StripeCustomerID *string
+	CreatedAt        time.Time
+}

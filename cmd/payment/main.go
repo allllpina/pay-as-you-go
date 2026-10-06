@@ -49,7 +49,7 @@ func main() {
 
 	paymentHandler.SetupRoutes(app)
 
-	port := os.Getenv("PORT")
+	port := os.Getenv("PAYMENT_PORT")
 	if port == "" {
 		port = "8000"
 	}
