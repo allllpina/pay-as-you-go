@@ -18,5 +18,20 @@ services:
       environment:
         ADMINER_DESIGN: 'nette'
 
+  payment-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.payment
+    container_name: pay_payment_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    environment:
+      DB_HOST: "postgres"
+
 volumes:
   pgdata:
