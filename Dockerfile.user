@@ -1,0 +1,30 @@
+# Етап 1: Збірка (Builder)
+FROM golang:1.26.8-alpine AS builder
+
+WORKDIR /app
+
+# Кешуємо залежності
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Копіюємо вихідний код
+COPY . .
+
+# Компілюємо статичний бінарник для user-service
+RUN CGO_ENABLED=0 GOOS=linux go build -o user-service ./cmd/user
+
+# Етап 2: Фінальний образ (Runner)
+FROM alpine:latest
+
+WORKDIR /app/
+
+# Додаємо сертифікати (завжди корисно для HTTPS запитів, навіть якщо зараз їх немає)
+RUN apk --no-cache add ca-certificates
+
+# Копіюємо скомпільований бінарник
+COPY --from=builder /app/user-service .
+
+# Експонуємо порт для user-service
+EXPOSE 8002
+
+CMD ["./user-service"]

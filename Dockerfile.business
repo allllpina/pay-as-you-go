@@ -1,0 +1,28 @@
+# Етап 1: Збірка
+FROM golang:1.26.8-alpine AS builder
+
+WORKDIR /app
+
+# Кешуємо залежності
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Копіюємо вихідний код
+COPY . .
+
+# Компілюємо бінарник
+RUN CGO_ENABLED=0 GOOS=linux go build -o business-service ./cmd/business
+
+# Етап 2: Фінальний образ
+FROM alpine:latest
+
+WORKDIR /app/
+
+RUN apk --no-cache add ca-certificates
+
+COPY --from=builder /app/business-service .
+
+# Business-service слухає порт 8001
+EXPOSE 8001
+
+CMD ["./business-service"]
