@@ -1,0 +1,37 @@
+# Етап 1: Збірка (Builder)
+FROM golang:1.26.8-alpine AS builder
+
+# Встановлюємо робочу директорію всередині контейнера
+WORKDIR /app
+
+# Копіюємо файли залежностей
+COPY go.mod go.sum ./
+
+# Завантажуємо залежності (кешується Docker-ом, якщо файли не змінились)
+RUN go mod download
+
+# Копіюємо весь початковий код
+COPY . .
+
+# Компілюємо бінарник.
+# CGO_ENABLED=0 робить бінарник статично слінкованим (необхідно для Alpine/Scratch).
+# GOOS=linux гарантує, що він збереться під Linux, незалежно від твоєї хост-машини (NixOS).
+RUN CGO_ENABLED=0 GOOS=linux go build -o payment-service ./cmd/payment
+
+# Етап 2: Фінальний образ (Runner)
+FROM alpine:latest
+
+WORKDIR /app/
+
+# Встановлюємо кореневі сертифікати (КРИТИЧНО ВАЖЛИВО!)
+# Без них Go не зможе робити HTTPS-запити до API Stripe
+RUN apk --no-cache add ca-certificates
+
+# Копіюємо скомпільований бінарник з першого етапу
+COPY --from=builder /app/payment-service .
+
+# Вказуємо порт, який слухає Fiber (за замовчуванням 8000)
+EXPOSE 8000
+
+# Запускаємо наш мікросервіс
+CMD ["./payment-service"]
